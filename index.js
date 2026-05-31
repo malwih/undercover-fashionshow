@@ -28,8 +28,8 @@ const DAFTAR_CHANNEL_ID = process.env.DAFTAR_CHANNEL_ID;
 // Channel #peserta-fashion-show
 const PESERTA_CHANNEL_ID = process.env.PESERTA_CHANNEL_ID;
 
-// Optional: user ID owner untuk tulisan "hubungi @ownerdiscord"
-const OWNER_USER_ID = process.env.OWNER_USER_ID || OWNER_USER_ID;
+// User ID owner untuk tulisan "hubungi @ownerdiscord"
+const OWNER_USER_ID = process.env.OWNER_USER_ID || null;
 
 const STORE_FOOTER = "UNDERCOVER - List Fashion Show";
 const DEFAULT_QUOTA = 35;
@@ -47,6 +47,7 @@ const db = {
   panelMessageId: null,
   listMessageId: null,
   quota: DEFAULT_QUOTA,
+  isOpen: true,
   participants: [],
 };
 
@@ -62,6 +63,7 @@ function loadDb() {
     db.panelMessageId = json.panelMessageId || null;
     db.listMessageId = json.listMessageId || null;
     db.quota = Number.isFinite(Number(json.quota)) ? Number(json.quota) : DEFAULT_QUOTA;
+    db.isOpen = typeof json.isOpen === "boolean" ? json.isOpen : true;
     db.participants = Array.isArray(json.participants) ? json.participants : [];
 
     if (db.quota < 1) db.quota = DEFAULT_QUOTA;
@@ -110,6 +112,10 @@ function isQuotaFull() {
   return getUsedQuota() >= Number(db.quota || DEFAULT_QUOTA);
 }
 
+function canRegisterNow() {
+  return db.isOpen && !isQuotaFull();
+}
+
 function getQuotaText() {
   const used = getUsedQuota();
   const quota = Number(db.quota || DEFAULT_QUOTA);
@@ -120,6 +126,18 @@ function getQuotaText() {
   }
 
   return `✅ **KUOTA TERSEDIA** — ${used}/${quota} peserta terdaftar\n🎟️ **Sisa Kuota:** ${remaining} peserta`;
+}
+
+function getRegistrationStatusText() {
+  if (!db.isOpen) {
+    return "🔴 **PENDAFTARAN DITUTUP**";
+  }
+
+  if (isQuotaFull()) {
+    return "⛔ **PENDAFTARAN DITUTUP — KUOTA PENUH**";
+  }
+
+  return "🟢 **PENDAFTARAN DIBUKA**";
 }
 
 // ================= ROBLOX CHECK =================
@@ -179,8 +197,7 @@ async function getRobloxAvatarHeadshot(userId) {
 
 // ================= TIKTOK HELPERS =================
 // TikTok sengaja TIDAK divalidasi via fetch.
-// Alasannya: TikTok sering block request bot/server, captcha, atau return error
-// walaupun username benar. Jadi TikTok hanya dicek format dan dibuat link profil.
+// TikTok sering memblokir request bot/server walaupun username benar.
 function buildTikTokUser(username) {
   const clean = cleanUsername(username);
   if (!clean) return null;
@@ -195,9 +212,20 @@ function buildTikTokUser(username) {
 // ================= EMBEDS / COMPONENTS =================
 function buildPanelEmbed() {
   const quotaStatus = getQuotaText();
+  const registrationStatus = getRegistrationStatusText();
+
+  let finalLine = "";
+
+  if (!db.isOpen) {
+    finalLine = "🔴 **Pendaftaran sedang ditutup oleh panitia.** Tunggu info selanjutnya dari panitia.";
+  } else if (isQuotaFull()) {
+    finalLine = "⛔ **Kuota saat ini sudah penuh.** Tunggu info dari panitia jika kuota ditambah.";
+  } else {
+    finalLine = "🔥 **Jangan sampai ketinggalan!** Klik tombol **DAFTAR** di bawah untuk mendaftar.";
+  }
 
   return new EmbedBuilder()
-    .setColor(isQuotaFull() ? 0xef4444 : 0x8b5cf6)
+    .setColor(!db.isOpen || isQuotaFull() ? 0xef4444 : 0x8b5cf6)
     .setTitle("⚡ UNDERCOVER FASHION SHOW ⚡")
     .setDescription(
       [
@@ -205,6 +233,12 @@ function buildPanelEmbed() {
         "",
         "Halo warga **Undercover Society**! 🖤💜",
         "Saatnya tunjukkan style terbaik kalian di acara **FASHION SHOW UNDERCOVER** dengan vibes underground, bold, dan penuh karakter! 🔥",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━",
+        "",
+        "## 📌 STATUS PENDAFTARAN",
+        "",
+        registrationStatus,
         "",
         "━━━━━━━━━━━━━━━━━━━━━━",
         "",
@@ -264,9 +298,7 @@ function buildPanelEmbed() {
         "",
         "━━━━━━━━━━━━━━━━━━━━━━",
         "",
-        isQuotaFull()
-          ? "⛔ **Kuota saat ini sudah penuh.** Tunggu info dari panitia jika kuota ditambah."
-          : "🔥 **Jangan sampai ketinggalan!** Klik tombol **DAFTAR** di bawah untuk mendaftar.",
+        finalLine,
       ].join("\n")
     )
     .setFooter({ text: "UNDERCOVER - Fashion Show Registration" })
@@ -274,13 +306,27 @@ function buildPanelEmbed() {
 }
 
 function buildPanelComponents() {
+  let label = "DAFTAR";
+  let style = ButtonStyle.Success;
+  let disabled = false;
+
+  if (!db.isOpen) {
+    label = "PENDAFTARAN DITUTUP";
+    style = ButtonStyle.Danger;
+    disabled = true;
+  } else if (isQuotaFull()) {
+    label = "KUOTA PENUH";
+    style = ButtonStyle.Danger;
+    disabled = true;
+  }
+
   return [
     new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId("fs_open_register_modal")
-        .setLabel(isQuotaFull() ? "KUOTA PENUH" : "DAFTAR")
-        .setStyle(isQuotaFull() ? ButtonStyle.Danger : ButtonStyle.Success)
-        .setDisabled(isQuotaFull())
+        .setLabel(label)
+        .setStyle(style)
+        .setDisabled(disabled)
     ),
   ];
 }
@@ -322,7 +368,7 @@ function buildRetryButton() {
         .setCustomId("fs_retry_register_modal")
         .setLabel("Isi Ulang Form")
         .setStyle(ButtonStyle.Primary)
-        .setDisabled(isQuotaFull())
+        .setDisabled(!canRegisterNow())
     ),
   ];
 }
@@ -345,6 +391,7 @@ function buildConfirmationEmbed(data) {
         `🏷️ **Roblox Display Name:** ${data.roblox.displayName || "-"}`,
         `🎵 **TikTok Username:** ${tiktokLine}`,
         "",
+        `📌 **Status Pendaftaran:** ${db.isOpen ? "DIBUKA" : "DITUTUP"}`,
         `🎟️ **Status Kuota:** ${getUsedQuota()}/${db.quota}`,
         `📌 **Sisa Kuota:** ${getRemainingQuota()}`,
         "",
@@ -357,15 +404,19 @@ function buildConfirmationEmbed(data) {
 }
 
 function buildConfirmationButtons(confirmId) {
-  const full = isQuotaFull();
+  const disabled = !canRegisterNow();
+
+  let yesLabel = "BENAR";
+  if (!db.isOpen) yesLabel = "PENDAFTARAN DITUTUP";
+  else if (isQuotaFull()) yesLabel = "KUOTA PENUH";
 
   return [
     new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`fs_confirm_yes:${confirmId}`)
-        .setLabel(full ? "KUOTA PENUH" : "BENAR")
-        .setStyle(full ? ButtonStyle.Danger : ButtonStyle.Success)
-        .setDisabled(full),
+        .setLabel(yesLabel)
+        .setStyle(disabled ? ButtonStyle.Danger : ButtonStyle.Success)
+        .setDisabled(disabled),
       new ButtonBuilder()
         .setCustomId(`fs_confirm_no:${confirmId}`)
         .setLabel("SALAH / ISI ULANG")
@@ -377,6 +428,7 @@ function buildConfirmationButtons(confirmId) {
 function buildListEmbed() {
   const desc = [];
 
+  desc.push(`📌 **Status Pendaftaran:** ${db.isOpen ? "🟢 DIBUKA" : "🔴 DITUTUP"}`);
   desc.push(`🎟️ **Kuota:** ${getUsedQuota()}/${db.quota}`);
   desc.push(`📌 **Sisa Kuota:** ${getRemainingQuota()}`);
   desc.push("");
@@ -398,14 +450,15 @@ function buildListEmbed() {
   }
 
   desc.push("");
-  desc.push(
-    `Jika ada kesalahan atau batal ikut pendaftaran segera hubungi ${
-      OWNER_USER_ID ? `<@${OWNER_USER_ID}>` : "@ownerdiscord"
-    }`
-  );
+
+  if (OWNER_USER_ID) {
+    desc.push(`Jika ada kesalahan atau batal ikut pendaftaran segera hubungi <@${OWNER_USER_ID}>`);
+  } else {
+    desc.push("Jika ada kesalahan atau batal ikut pendaftaran segera hubungi @ownerdiscord");
+  }
 
   return new EmbedBuilder()
-    .setColor(isQuotaFull() ? 0xef4444 : 0xa855f7)
+    .setColor(!db.isOpen || isQuotaFull() ? 0xef4444 : 0xa855f7)
     .setTitle("⚡ DAFTAR PESERTA FASHION SHOW UNDERCOVER ⚡")
     .setDescription(desc.join("\n\n"))
     .setFooter({ text: STORE_FOOTER })
@@ -476,7 +529,7 @@ async function refreshPanelMessage(client) {
 }
 
 async function refreshParticipantList(client, options = {}) {
-  const { pingEveryone = false, mentionUserId = null } = options;
+  const { mentionUserId = null } = options;
 
   const guild = await getGuild(client);
   const channel = await getTextChannel(guild, PESERTA_CHANNEL_ID);
@@ -489,16 +542,17 @@ async function refreshParticipantList(client, options = {}) {
     oldMsg = await channel.messages.fetch(db.listMessageId).catch(() => null);
   }
 
-  const contentParts = [];
+  const contentParts = ["@everyone"];
 
-  if (pingEveryone) contentParts.push("@everyone");
-  if (mentionUserId) contentParts.push(`<@${mentionUserId}>`);
+  if (mentionUserId) {
+    contentParts.push(`<@${mentionUserId}>`);
+  }
 
   const sent = await channel.send({
-    content: contentParts.join(" ") || null,
+    content: contentParts.join(" "),
     embeds: [embed],
     allowedMentions: {
-      parse: pingEveryone ? ["everyone"] : [],
+      parse: ["everyone"],
       users: mentionUserId ? [mentionUserId] : [],
     },
   });
@@ -541,6 +595,39 @@ function isDuplicateRegistration(discordUserId, robloxUsername) {
   });
 }
 
+function buildDeleteAutocompleteChoices(focusedValue) {
+  const query = String(focusedValue || "").toLowerCase().trim();
+
+  return db.participants
+    .filter((p) => {
+      const haystack = [
+        p.robloxUsername,
+        p.robloxDisplayName,
+        p.tiktokUsername,
+        p.discordTag,
+        p.discordUserId,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return !query || haystack.includes(query);
+    })
+    .slice(0, 25)
+    .map((p, idx) => {
+      const labelParts = [
+        `${idx + 1}. ${p.robloxUsername}`,
+        p.robloxDisplayName ? `Display: ${p.robloxDisplayName}` : null,
+        p.discordTag ? `Discord: ${p.discordTag}` : `Discord ID: ${p.discordUserId}`,
+      ].filter(Boolean);
+
+      return {
+        name: labelParts.join(" | ").slice(0, 100),
+        value: p.robloxUsername.slice(0, 100),
+      };
+    });
+}
+
 // ================= CLIENT =================
 loadDb();
 
@@ -567,8 +654,9 @@ client.once("ready", async () => {
         .addStringOption((option) =>
           option
             .setName("peserta")
-            .setDescription("Akun Discord / mention Discord / Username Roblox")
+            .setDescription("Pilih peserta yang ingin dihapus")
             .setRequired(true)
+            .setAutocomplete(true)
         )
         .toJSON(),
 
@@ -583,11 +671,21 @@ client.once("ready", async () => {
             .setMinValue(1)
         )
         .toJSON(),
+
+      new SlashCommandBuilder()
+        .setName("openfs")
+        .setDescription("Owner: buka pendaftaran fashion show")
+        .toJSON(),
+
+      new SlashCommandBuilder()
+        .setName("closefs")
+        .setDescription("Owner: tutup pendaftaran fashion show")
+        .toJSON(),
     ]);
 
-    console.log("Slash commands /delete and /setkuota registered.");
+    console.log("Slash commands registered: /delete, /setkuota, /openfs, /closefs");
 
-    await refreshAllMessages(client, { pingEveryone: false });
+    await refreshAllMessages(client);
   } catch (e) {
     console.error("Ready error:", e);
   }
@@ -595,6 +693,81 @@ client.once("ready", async () => {
 
 client.on("interactionCreate", async (i) => {
   try {
+    // ================= AUTOCOMPLETE: /delete peserta =================
+    if (i.isAutocomplete()) {
+      if (i.commandName !== "delete") return;
+
+      const focused = i.options.getFocused(true);
+
+      if (focused.name !== "peserta") {
+        return i.respond([]);
+      }
+
+      return i.respond(buildDeleteAutocompleteChoices(focused.value));
+    }
+
+    // ================= SLASH COMMAND: OPENFS =================
+    if (i.isChatInputCommand() && i.commandName === "openfs") {
+      const member = await i.guild.members.fetch(i.user.id).catch(() => null);
+
+      if (!isOwner(member)) {
+        return i.reply({
+          content: "Command ini khusus owner.",
+          ephemeral: true,
+        });
+      }
+
+      if (db.isOpen) {
+        return i.reply({
+          content: "🟢 Pendaftaran fashion show memang sudah dibuka.",
+          ephemeral: true,
+        });
+      }
+
+      db.isOpen = true;
+      saveDb();
+
+      await refreshAllMessages(client);
+
+      return i.reply({
+        content:
+          `✅ Pendaftaran fashion show berhasil **DIBUKA**.\n` +
+          `Status kuota: **${getUsedQuota()}/${db.quota}**`,
+        ephemeral: true,
+      });
+    }
+
+    // ================= SLASH COMMAND: CLOSEFS =================
+    if (i.isChatInputCommand() && i.commandName === "closefs") {
+      const member = await i.guild.members.fetch(i.user.id).catch(() => null);
+
+      if (!isOwner(member)) {
+        return i.reply({
+          content: "Command ini khusus owner.",
+          ephemeral: true,
+        });
+      }
+
+      if (!db.isOpen) {
+        return i.reply({
+          content: "🔴 Pendaftaran fashion show memang sudah ditutup.",
+          ephemeral: true,
+        });
+      }
+
+      db.isOpen = false;
+      saveDb();
+
+      await refreshAllMessages(client);
+
+      return i.reply({
+        content:
+          `✅ Pendaftaran fashion show berhasil **DITUTUP**.\n` +
+          `Peserta saat ini: **${getUsedQuota()}/${db.quota}**`,
+        ephemeral: true,
+      });
+    }
+
     // ================= SLASH COMMAND: DELETE =================
     if (i.isChatInputCommand() && i.commandName === "delete") {
       const member = await i.guild.members.fetch(i.user.id).catch(() => null);
@@ -619,7 +792,7 @@ client.on("interactionCreate", async (i) => {
       if (idx === -1) {
         return i.reply({
           content:
-            "Peserta tidak ditemukan. Pakai mention Discord, ID Discord, atau Username Roblox.",
+            "Peserta tidak ditemukan. Pilih dari suggestion, pakai mention Discord, ID Discord, atau Username Roblox.",
           ephemeral: true,
         });
       }
@@ -627,7 +800,7 @@ client.on("interactionCreate", async (i) => {
       const removed = db.participants.splice(idx, 1)[0];
       saveDb();
 
-      await refreshAllMessages(client, { pingEveryone: false });
+      await refreshAllMessages(client);
 
       return i.reply({
         content:
@@ -673,18 +846,28 @@ client.on("interactionCreate", async (i) => {
       db.quota = jumlah;
       saveDb();
 
-      await refreshAllMessages(client, { pingEveryone: false });
+      await refreshAllMessages(client);
 
       return i.reply({
         content:
           `✅ Kuota berhasil diubah dari **${oldQuota}** menjadi **${db.quota}**.\n` +
-          `Status sekarang: **${getUsedQuota()}/${db.quota}** peserta.`,
+          `Status sekarang: **${getUsedQuota()}/${db.quota}** peserta.\n` +
+          `Pendaftaran: **${db.isOpen ? "DIBUKA" : "DITUTUP"}**`,
         ephemeral: true,
       });
     }
 
     // ================= OPEN MODAL =================
     if (i.isButton() && i.customId === "fs_open_register_modal") {
+      if (!db.isOpen) {
+        await refreshPanelMessage(client).catch(() => {});
+
+        return i.reply({
+          content: "🔴 Pendaftaran fashion show sedang ditutup oleh panitia.",
+          ephemeral: true,
+        });
+      }
+
       if (isQuotaFull()) {
         await refreshPanelMessage(client).catch(() => {});
 
@@ -700,6 +883,15 @@ client.on("interactionCreate", async (i) => {
     }
 
     if (i.isButton() && i.customId === "fs_retry_register_modal") {
+      if (!db.isOpen) {
+        await refreshPanelMessage(client).catch(() => {});
+
+        return i.reply({
+          content: "🔴 Pendaftaran fashion show sedang ditutup oleh panitia.",
+          ephemeral: true,
+        });
+      }
+
       if (isQuotaFull()) {
         await refreshPanelMessage(client).catch(() => {});
 
@@ -717,6 +909,14 @@ client.on("interactionCreate", async (i) => {
     // ================= MODAL SUBMIT =================
     if (i.isModalSubmit() && i.customId === "fs_register_modal_submit") {
       await i.deferReply({ ephemeral: true });
+
+      if (!db.isOpen) {
+        await refreshPanelMessage(client).catch(() => {});
+
+        return i.editReply({
+          content: "🔴 Pendaftaran gagal karena fashion show sedang ditutup oleh panitia.",
+        });
+      }
 
       if (isQuotaFull()) {
         await refreshPanelMessage(client).catch(() => {});
@@ -845,6 +1045,15 @@ client.on("interactionCreate", async (i) => {
 
         await i.message.delete().catch(() => {});
 
+        if (!db.isOpen) {
+          await refreshPanelMessage(client).catch(() => {});
+
+          return i.reply({
+            content: "🔴 Pendaftaran fashion show sedang ditutup oleh panitia.",
+            ephemeral: true,
+          });
+        }
+
         if (isQuotaFull()) {
           await refreshPanelMessage(client).catch(() => {});
 
@@ -861,6 +1070,17 @@ client.on("interactionCreate", async (i) => {
 
       if (action === "fs_confirm_yes") {
         await i.deferReply({ ephemeral: true });
+
+        if (!db.isOpen) {
+          pendingConfirmations.delete(confirmId);
+
+          await i.message.delete().catch(() => {});
+          await refreshPanelMessage(client).catch(() => {});
+
+          return i.editReply({
+            content: "🔴 Pendaftaran gagal karena fashion show sedang ditutup oleh panitia.",
+          });
+        }
 
         if (isQuotaFull()) {
           pendingConfirmations.delete(confirmId);
@@ -912,7 +1132,6 @@ client.on("interactionCreate", async (i) => {
         await i.message.delete().catch(() => {});
 
         await refreshAllMessages(client, {
-          pingEveryone: true,
           mentionUserId: data.discordUserId,
         });
 
