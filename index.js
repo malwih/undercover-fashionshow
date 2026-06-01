@@ -1007,16 +1007,12 @@ client.on("interactionCreate", async (i) => {
 
       pendingConfirmations.set(confirmId, data);
 
-      await i.editReply({
-        content:
-          "✅ Data ditemukan. Bot mengirim pesan konfirmasi di channel ini.",
-      });
-
-      return i.channel.send({
-        content: `<@${i.user.id}> konfirmasi akun kamu di bawah ini.`,
+      // Konfirmasi dibuat sebagai ephemeral reply.
+      // Artinya hanya user yang mengisi form yang bisa melihat akun Roblox/TikTok ini.
+      return i.editReply({
+        content: "✅ Data ditemukan. Silakan konfirmasi akun kamu di bawah ini.",
         embeds: [buildConfirmationEmbed(data)],
         components: buildConfirmationButtons(confirmId),
-        allowedMentions: { users: [i.user.id] },
       });
     }
 
