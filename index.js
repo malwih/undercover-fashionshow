@@ -95,7 +95,7 @@ function isOwner(member) {
   if (!member) return false;
 
   return (
-    member.roles.cache.has(OWNER_USER_ID) ||
+    member.id === OWNER_USER_ID ||
     member.permissions.has(PermissionsBitField.Flags.Administrator)
   );
 }
@@ -425,44 +425,77 @@ function buildConfirmationButtons(confirmId) {
   ];
 }
 
-function buildListEmbed() {
-  const desc = [];
+function buildListEmbeds() {
+  const embeds = [];
 
-  desc.push(`📌 **Status Pendaftaran:** ${db.isOpen ? "🟢 DIBUKA" : "🔴 DITUTUP"}`);
-  desc.push(`🎟️ **Kuota:** ${getUsedQuota()}/${db.quota}`);
-  desc.push(`📌 **Sisa Kuota:** ${getRemainingQuota()}`);
-  desc.push("");
+  const headerLines = [
+    `📌 **Status Pendaftaran:** ${db.isOpen ? "🟢 DIBUKA" : "🔴 DITUTUP"}`,
+    `🎟️ **Kuota:** ${getUsedQuota()}/${db.quota}`,
+    `📌 **Sisa Kuota:** ${getRemainingQuota()}`,
+    "",
+  ];
+
+  let currentDescription = headerLines.join("\n");
+  let page = 1;
 
   if (db.participants.length === 0) {
-    desc.push("_Belum ada peserta yang terdaftar._");
+    currentDescription += "\n_Belum ada peserta yang terdaftar._";
   } else {
     db.participants.forEach((p, idx) => {
-      desc.push(
-        [
-          `**${idx + 1}.**`,
-          `**Discord :** <@${p.discordUserId}>`,
-          `**Username Roblox :** ${p.robloxUsername}`,
-          `**DisplayName Roblox :** ${p.robloxDisplayName || "-"}`,
-          `**Username TikTok :** ${p.tiktokUsername || "-"}`,
-        ].join("\n")
-      );
+      const block = [
+        `**${idx + 1}.**`,
+        `**Discord :** <@${p.discordUserId}>`,
+        `**Username Roblox :** ${p.robloxUsername}`,
+        `**DisplayName Roblox :** ${p.robloxDisplayName || "-"}`,
+        `**Username TikTok :** ${p.tiktokUsername || "-"}`,
+        "",
+      ].join("\n");
+
+      // Sisakan buffer supaya aman dari limit Discord
+      if ((currentDescription + "\n" + block).length > 3800) {
+        embeds.push(
+          new EmbedBuilder()
+            .setColor(!db.isOpen || isQuotaFull() ? 0xef4444 : 0xa855f7)
+            .setTitle(
+              page === 1
+                ? "⚡ DAFTAR PESERTA FASHION SHOW UNDERCOVER ⚡"
+                : `⚡ DAFTAR PESERTA FASHION SHOW UNDERCOVER (Hal. ${page}) ⚡`
+            )
+            .setDescription(currentDescription)
+            .setFooter({ text: STORE_FOOTER })
+            .setTimestamp()
+        );
+
+        page++;
+        currentDescription = block;
+      } else {
+        currentDescription += "\n" + block;
+      }
     });
   }
 
-  desc.push("");
-
   if (OWNER_USER_ID) {
-    desc.push(`Jika ada kesalahan atau batal ikut pendaftaran segera hubungi <@${OWNER_USER_ID}>`);
+    currentDescription +=
+      `\n\nJika ada kesalahan atau batal ikut pendaftaran segera hubungi <@${OWNER_USER_ID}>`;
   } else {
-    desc.push("Jika ada kesalahan atau batal ikut pendaftaran segera hubungi @ownerdiscord");
+    currentDescription +=
+      "\n\nJika ada kesalahan atau batal ikut pendaftaran segera hubungi @ownerdiscord";
   }
 
-  return new EmbedBuilder()
-    .setColor(!db.isOpen || isQuotaFull() ? 0xef4444 : 0xa855f7)
-    .setTitle("⚡ DAFTAR PESERTA FASHION SHOW UNDERCOVER ⚡")
-    .setDescription(desc.join("\n\n"))
-    .setFooter({ text: STORE_FOOTER })
-    .setTimestamp();
+  embeds.push(
+    new EmbedBuilder()
+      .setColor(!db.isOpen || isQuotaFull() ? 0xef4444 : 0xa855f7)
+      .setTitle(
+        page === 1
+          ? "⚡ DAFTAR PESERTA FASHION SHOW UNDERCOVER ⚡"
+          : `⚡ DAFTAR PESERTA FASHION SHOW UNDERCOVER (Hal. ${page}) ⚡`
+      )
+      .setDescription(currentDescription)
+      .setFooter({ text: STORE_FOOTER })
+      .setTimestamp()
+  );
+
+  return embeds;
 }
 
 // ================= DISCORD HELPERS =================
@@ -534,7 +567,7 @@ async function refreshParticipantList(client, options = {}) {
   const guild = await getGuild(client);
   const channel = await getTextChannel(guild, PESERTA_CHANNEL_ID);
 
-  const embed = buildListEmbed();
+  const embeds = buildListEmbeds();
 
   let oldMsg = null;
 
@@ -550,7 +583,7 @@ async function refreshParticipantList(client, options = {}) {
 
   const sent = await channel.send({
     content: contentParts.join(" "),
-    embeds: [embed],
+    embeds,
     allowedMentions: {
       parse: ["everyone"],
       users: mentionUserId ? [mentionUserId] : [],
