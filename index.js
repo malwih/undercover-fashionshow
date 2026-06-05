@@ -694,6 +694,11 @@ client.once("ready", async () => {
         .toJSON(),
 
       new SlashCommandBuilder()
+  .setName("deleteall")
+  .setDescription("Owner: hapus semua peserta fashion show")
+  .toJSON(),
+
+      new SlashCommandBuilder()
         .setName("setkuota")
         .setDescription("Owner: ubah kuota maksimal peserta fashion show")
         .addIntegerOption((option) =>
@@ -800,6 +805,40 @@ client.on("interactionCreate", async (i) => {
         ephemeral: true,
       });
     }
+
+    // ================= SLASH COMMAND: DELETEALL =================
+if (i.isChatInputCommand() && i.commandName === "deleteall") {
+  const member = await i.guild.members.fetch(i.user.id).catch(() => null);
+
+  if (!isOwner(member)) {
+    return i.reply({
+      content: "Command ini khusus owner.",
+      ephemeral: true,
+    });
+  }
+
+  if (i.channelId !== PESERTA_CHANNEL_ID) {
+    return i.reply({
+      content: `Command ini hanya boleh dipakai di <#${PESERTA_CHANNEL_ID}>.`,
+      ephemeral: true,
+    });
+  }
+
+  const total = db.participants.length;
+
+  db.participants = [];
+  saveDb();
+
+  await refreshAllMessages(client);
+
+  return i.reply({
+    content:
+      `✅ Semua peserta berhasil dihapus.\n` +
+      `Total peserta yang dihapus: **${total}**\n` +
+      `Kuota sekarang: **0/${db.quota}**`,
+    ephemeral: true,
+  });
+}
 
     // ================= SLASH COMMAND: DELETE =================
     if (i.isChatInputCommand() && i.commandName === "delete") {
